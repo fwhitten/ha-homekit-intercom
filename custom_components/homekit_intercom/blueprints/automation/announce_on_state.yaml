@@ -1,0 +1,101 @@
+blueprint:
+  name: HomeKit Intercom - announce on state change
+  description: >-
+    Announce a message on your HomePods when an entity changes to a state.
+    Messages triggered close together are combined into one announcement.
+    The message supports templates, e.g.
+    `{{ state_attr(trigger.entity_id, 'friendly_name') }} is open`.
+  domain: automation
+  author: fwhitten
+  source_url: https://github.com/fwhitten/ha-homekit-intercom/blob/main/custom_components/homekit_intercom/blueprints/automation/announce_on_state.yaml
+  input:
+    trigger_section:
+      name: Trigger
+      icon: mdi:flash
+      input:
+        trigger_entity:
+          name: Entity
+          selector:
+            entity:
+              multiple: true
+        to_state:
+          name: To state
+          description: The state that triggers the announcement, e.g. `off`, `idle`, `on`.
+          selector:
+            text:
+        for_duration:
+          name: For at least
+          description: How long the entity must stay in the state first.
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
+        extra_conditions:
+          name: Extra conditions
+          description: Only announce when these are also true (optional).
+          default: []
+          selector:
+            condition:
+    announcement_section:
+      name: Announcement
+      icon: mdi:bullhorn
+      input:
+        zone:
+          name: Zones
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - integration: homekit_intercom
+                  domain: notify
+        message:
+          name: Message
+          selector:
+            template:
+        priority:
+          name: Priority
+          default: normal
+          selector:
+            select:
+              options:
+                - label: Normal (batched)
+                  value: normal
+                - label: Urgent (send now)
+                  value: urgent
+        cooldown:
+          name: Cooldown
+          description: Don't repeat this announcement within this time.
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
+        ignore_quiet_hours:
+          name: Ignore quiet hours
+          default: false
+          selector:
+            boolean:
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input trigger_entity
+    to: !input to_state
+    for: !input for_duration
+
+conditions: !input extra_conditions
+
+actions:
+  - action: homekit_intercom.announce
+    target:
+      entity_id: !input zone
+    data:
+      message: !input message
+      priority: !input priority
+      key: "{{ this.entity_id }}:{{ trigger.entity_id }}"
+      cooldown: !input cooldown
+      ignore_quiet_hours: !input ignore_quiet_hours

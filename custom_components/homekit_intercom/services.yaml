@@ -1,0 +1,35 @@
+announce:
+  target:
+    entity:
+      integration: homekit_intercom
+      domain: notify
+  fields:
+    message:
+      required: true
+      example: "The washing machine has finished."
+      selector:
+        text:
+    priority:
+      default: normal
+      selector:
+        select:
+          translation_key: priority
+          options:
+            - normal
+            - urgent
+    key:
+      example: washing_machine
+      selector:
+        text:
+    cooldown:
+      selector:
+        duration:
+    ignore_quiet_hours:
+      default: false
+      selector:
+        boolean:
+flush:
+  target:
+    entity:
+      integration: homekit_intercom
+      domain: notify

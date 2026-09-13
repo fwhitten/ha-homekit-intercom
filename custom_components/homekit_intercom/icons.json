@@ -1,0 +1,14 @@
+{
+  "entity": {
+    "button": { "test": { "default": "mdi:bullhorn-variant-outline" } },
+    "sensor": {
+      "last_announcement": { "default": "mdi:message-text-outline" },
+      "last_sent": { "default": "mdi:email-fast-outline" },
+      "pending": { "default": "mdi:tray-full" }
+    }
+  },
+  "services": {
+    "announce": { "service": "mdi:bullhorn" },
+    "flush": { "service": "mdi:send" }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Email delivery",
+        "description": "HomeKit Intercom sends an email that your Siri Shortcut picks up and announces on your HomePods. Choose the notify action that sends email (e.g. your Google Mail account) and the address the Shortcut watches.",
+        "data": {
+          "notify_service": "Notify action",
+          "recipient": "Recipient email"
+        },
+        "data_description": {
+          "notify_service": "The name after `notify.`, for example `you_gmail_com` from the Google Mail integration.",
+          "recipient": "The mailbox on the iPhone, iPad or Mac that runs your Shortcut automation."
+        }
+      },
+      "zone": {
+        "title": "First zone",
+        "description": "A zone is a group of HomePods and the subject prefix your Shortcut looks for. You can add more zones later.",
+        "data": {
+          "name": "Zone name",
+          "prefix": "Subject prefix"
+        },
+        "data_description": {
+          "prefix": "Without the colon, e.g. `HA Announce All` sends `HA Announce All: <message>`."
+        }
+      }
+    },
+    "error": {
+      "service_not_found": "That notify action does not exist.",
+      "invalid_email": "Enter a valid email address."
+    }
+  },
+  "config_subentries": {
+    "zone": {
+      "initiate_flow": {
+        "user": "Add zone",
+        "reconfigure": "Edit zone"
+      },
+      "entry_type": "Zone",
+      "step": {
+        "user": {
+          "title": "Add zone",
+          "description": "Match the prefix to the one your Siri Shortcut looks for.",
+          "data": {
+            "name": "Zone name",
+            "prefix": "Subject prefix"
+          },
+          "data_description": {
+            "prefix": "Without the colon, e.g. `HA Announce Kitchen`."
+          }
+        },
+        "reconfigure": {
+          "title": "Edit zone",
+          "data": {
+            "name": "Zone name",
+            "prefix": "Subject prefix"
+          },
+          "data_description": {
+            "prefix": "Without the colon, e.g. `HA Announce Kitchen`."
+          }
+        }
+      },
+      "error": {
+        "empty": "Name and prefix cannot be empty.",
+        "name_exists": "A zone with this name already exists."
+      },
+      "abort": {
+        "reconfigure_successful": "Zone updated."
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HomeKit Intercom settings",
+        "data": {
+          "notify_service": "Notify action",
+          "recipient": "Recipient email",
+          "batch_window": "Batch window",
+          "max_wait": "Maximum wait",
+          "max_length": "Maximum subject length",
+          "quiet_hours": "Enable quiet hours",
+          "quiet_start": "Quiet hours start",
+          "quiet_end": "Quiet hours end",
+          "quiet_mode": "During quiet hours"
+        },
+        "data_description": {
+          "batch_window": "Wait this long after the latest message for more to arrive before sending them together.",
+          "max_wait": "Send regardless once the first queued message has waited this long.",
+          "max_length": "Longer combined announcements are split across several emails.",
+          "quiet_mode": "Urgent messages and those with 'Ignore quiet hours' are always sent."
+        }
+      }
+    },
+    "error": {
+      "service_not_found": "That notify action does not exist.",
+      "invalid_email": "Enter a valid email address."
+    }
+  },
+  "selector": {
+    "quiet_mode": {
+      "options": {
+        "hold": "Hold until quiet hours end",
+        "drop": "Discard"
+      }
+    },
+    "priority": {
+      "options": {
+        "normal": "Normal (batched)",
+        "urgent": "Urgent (send now)"
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "test": { "name": "Send test announcement" }
+    },
+    "sensor": {
+      "last_announcement": { "name": "Last announcement" },
+      "last_sent": { "name": "Last sent" },
+      "pending": { "name": "Pending messages" }
+    }
+  },
+  "exceptions": {
+    "no_zones_targeted": {
+      "message": "Target at least one HomeKit Intercom zone (notify entity)."
+    }
+  },
+  "services": {
+    "announce": {
+      "name": "Announce",
+      "description": "Queue a message to be announced on a zone's HomePods. Messages arriving close together are combined into one announcement.",
+      "fields": {
+        "message": {
+          "name": "Message",
+          "description": "What to announce. Templates are supported."
+        },
+        "priority": {
+          "name": "Priority",
+          "description": "Urgent messages are sent immediately (along with anything queued) and ignore quiet hours."
+        },
+        "key": {
+          "name": "Key",
+          "description": "Identifies this notification. A newer message with the same key replaces a queued one and is used for cooldown."
+        },
+        "cooldown": {
+          "name": "Cooldown",
+          "description": "Ignore this message if the same key was announced within this time. Requires a key."
+        },
+        "ignore_quiet_hours": {
+          "name": "Ignore quiet hours",
+          "description": "Send even during quiet hours, but still batched."
+        }
+      }
+    },
+    "flush": {
+      "name": "Send now",
+      "description": "Immediately send any queued messages for the targeted zones."
+    }
+  }
+}
