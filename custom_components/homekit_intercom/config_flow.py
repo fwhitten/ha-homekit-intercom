@@ -21,6 +21,8 @@ from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    EntitySelector,
+    EntitySelectorConfig,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -39,6 +41,7 @@ from .const import (
     CONF_MAX_WAIT,
     CONF_NOTIFY_SERVICE,
     CONF_PREFIX,
+    CONF_PRESENCE_ENTITY,
     CONF_QUIET_END,
     CONF_QUIET_HOURS,
     CONF_QUIET_MODE,
@@ -46,6 +49,7 @@ from .const import (
     CONF_RECIPIENT,
     DEFAULT_OPTIONS,
     DOMAIN,
+    PRESENCE_DOMAINS,
     QUIET_MODES,
     SUBENTRY_ZONE,
 )
@@ -88,15 +92,21 @@ ZONE_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): TextSelector(),
         vol.Required(CONF_PREFIX): TextSelector(),
+        vol.Optional(CONF_PRESENCE_ENTITY): EntitySelector(
+            EntitySelectorConfig(domain=PRESENCE_DOMAINS)
+        ),
     }
 )
 
 
 def _normalise_zone(user_input: dict[str, Any]) -> dict[str, Any]:
-    return {
+    zone = {
         CONF_NAME: str(user_input[CONF_NAME]).strip(),
         CONF_PREFIX: str(user_input[CONF_PREFIX]).strip().rstrip(":").strip(),
     }
+    if presence := user_input.get(CONF_PRESENCE_ENTITY):
+        zone[CONF_PRESENCE_ENTITY] = presence
+    return zone
 
 
 class HomeKitIntercomConfigFlow(ConfigFlow, domain=DOMAIN):

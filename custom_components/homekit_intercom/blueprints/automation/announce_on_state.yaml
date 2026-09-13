@@ -73,6 +73,18 @@ blueprint:
             seconds: 0
           selector:
             duration:
+        stale_after:
+          name: Stale after
+          description: >-
+            Discard this announcement if it is still waiting (for someone to be
+            present in the zone, or for quiet hours to end) after this long.
+            0 waits indefinitely.
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
         ignore_quiet_hours:
           name: Ignore quiet hours
           default: false
@@ -99,3 +111,4 @@ actions:
       key: "{{ this.entity_id }}:{{ trigger.entity_id }}"
       cooldown: !input cooldown
       ignore_quiet_hours: !input ignore_quiet_hours
+      stale_after: !input stale_after

@@ -24,10 +24,17 @@ announce:
     cooldown:
       selector:
         duration:
-    ignore_quiet_hours:
-      default: false
+    quiet_hours:
+      default: respect
       selector:
-        boolean:
+        select:
+          translation_key: quiet_hours
+          options:
+            - respect
+            - ignore
+    stale_after:
+      selector:
+        duration:
 flush:
   target:
     entity:

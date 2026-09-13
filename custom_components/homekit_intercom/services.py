@@ -18,9 +18,13 @@ from .const import (
     ATTR_KEY,
     ATTR_MESSAGE,
     ATTR_PRIORITY,
+    ATTR_QUIET_HOURS,
+    ATTR_STALE_AFTER,
     DOMAIN,
     PRIORITIES,
     PRIORITY_NORMAL,
+    QUIET_HOURS_CHOICES,
+    QUIET_HOURS_IGNORE,
     SERVICE_ANNOUNCE,
     SERVICE_FLUSH,
 )
@@ -34,6 +38,8 @@ ANNOUNCE_SCHEMA = cv.make_entity_service_schema(
         vol.Optional(ATTR_PRIORITY, default=PRIORITY_NORMAL): vol.In(PRIORITIES),
         vol.Optional(ATTR_KEY): cv.string,
         vol.Optional(ATTR_COOLDOWN): cv.positive_time_period,
+        vol.Optional(ATTR_QUIET_HOURS): vol.In(QUIET_HOURS_CHOICES),
+        vol.Optional(ATTR_STALE_AFTER): cv.positive_time_period,
         vol.Optional(ATTR_IGNORE_QUIET_HOURS, default=False): cv.boolean,
     }
 )
@@ -79,13 +85,18 @@ def async_setup_services(hass: HomeAssistant) -> None:
     """Register the announce and flush actions."""
 
     async def async_announce(call: ServiceCall) -> None:
+        if ATTR_QUIET_HOURS in call.data:
+            ignore_quiet_hours = call.data[ATTR_QUIET_HOURS] == QUIET_HOURS_IGNORE
+        else:
+            ignore_quiet_hours = call.data[ATTR_IGNORE_QUIET_HOURS]
         for zone in await _async_get_zones(call):
             await zone.async_announce(
                 Announcement(
                     message=call.data[ATTR_MESSAGE],
                     priority=call.data[ATTR_PRIORITY],
                     key=call.data.get(ATTR_KEY),
-                    ignore_quiet_hours=call.data[ATTR_IGNORE_QUIET_HOURS],
+                    ignore_quiet_hours=ignore_quiet_hours,
+                    stale_after=call.data.get(ATTR_STALE_AFTER),
                 ),
                 cooldown=call.data.get(ATTR_COOLDOWN),
             )

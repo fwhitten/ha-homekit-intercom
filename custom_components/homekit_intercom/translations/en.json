@@ -18,10 +18,12 @@
         "description": "A zone is a group of HomePods and the subject prefix your Shortcut looks for. You can add more zones later.",
         "data": {
           "name": "Zone name",
-          "prefix": "Subject prefix"
+          "prefix": "Subject prefix",
+          "presence_entity": "Presence sensor"
         },
         "data_description": {
-          "prefix": "Without the colon, e.g. `HA Announce All` sends `HA Announce All: The washing machine has finished.`."
+          "prefix": "Without the colon, e.g. `HA Announce All` sends `HA Announce All: The washing machine has finished.`.",
+          "presence_entity": "Optional. Non-urgent messages wait until this shows someone is there (`on`, `home`, or a zone count above 0). Unavailable counts as occupied."
         }
       }
     },
@@ -43,20 +45,24 @@
           "description": "Match the prefix to the one your Siri Shortcut looks for.",
           "data": {
             "name": "Zone name",
-            "prefix": "Subject prefix"
+            "prefix": "Subject prefix",
+            "presence_entity": "Presence sensor"
           },
           "data_description": {
-            "prefix": "Without the colon, e.g. `HA Announce Kitchen`."
+            "prefix": "Without the colon, e.g. `HA Announce Kitchen`.",
+            "presence_entity": "Optional. Non-urgent messages wait until this shows someone is there (`on`, `home`, or a zone count above 0). Unavailable counts as occupied."
           }
         },
         "reconfigure": {
           "title": "Edit zone",
           "data": {
             "name": "Zone name",
-            "prefix": "Subject prefix"
+            "prefix": "Subject prefix",
+            "presence_entity": "Presence sensor"
           },
           "data_description": {
-            "prefix": "Without the colon, e.g. `HA Announce Kitchen`."
+            "prefix": "Without the colon, e.g. `HA Announce Kitchen`.",
+            "presence_entity": "Optional. Non-urgent messages wait until this shows someone is there (`on`, `home`, or a zone count above 0). Unavailable counts as occupied."
           }
         }
       },
@@ -88,7 +94,7 @@
           "batch_window": "Wait this long after the latest message for more to arrive before sending them together.",
           "max_wait": "Send regardless once the first queued message has waited this long.",
           "max_length": "Longer combined announcements are split across several emails.",
-          "quiet_mode": "Urgent messages and those with 'Ignore quiet hours' are always sent."
+          "quiet_mode": "Urgent messages and those set to ignore quiet hours are always sent."
         }
       }
     },
@@ -109,16 +115,30 @@
         "normal": "Normal (batched)",
         "urgent": "Urgent (send now)"
       }
+    },
+    "quiet_hours": {
+      "options": {
+        "respect": "Respect (wait until they end)",
+        "ignore": "Ignore (still batched)"
+      }
     }
   },
   "entity": {
     "button": {
-      "test": { "name": "Send test announcement" }
+      "test": {
+        "name": "Send test announcement"
+      }
     },
     "sensor": {
-      "last_announcement": { "name": "Last announcement" },
-      "last_sent": { "name": "Last sent" },
-      "pending": { "name": "Pending messages" }
+      "last_announcement": {
+        "name": "Last announcement"
+      },
+      "last_sent": {
+        "name": "Last sent"
+      },
+      "pending": {
+        "name": "Pending messages"
+      }
     }
   },
   "exceptions": {
@@ -137,7 +157,7 @@
         },
         "priority": {
           "name": "Priority",
-          "description": "Urgent messages are sent immediately (along with anything queued) and ignore quiet hours."
+          "description": "Urgent messages are sent immediately (along with anything queued), ignoring quiet hours and presence."
         },
         "key": {
           "name": "Key",
@@ -147,9 +167,13 @@
           "name": "Cooldown",
           "description": "Ignore this message if the same key was announced within this time. Requires a key."
         },
-        "ignore_quiet_hours": {
-          "name": "Ignore quiet hours",
-          "description": "Send even during quiet hours, but still batched."
+        "quiet_hours": {
+          "name": "Quiet hours",
+          "description": "Whether this message waits for quiet hours to end."
+        },
+        "stale_after": {
+          "name": "Stale after",
+          "description": "Discard this message if it is still waiting (for presence or quiet hours) after this long. Leave empty to wait indefinitely."
         }
       }
     },

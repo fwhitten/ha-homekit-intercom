@@ -91,4 +91,8 @@ class PendingSensor(_ZoneSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the queued messages."""
-        return {"messages": [a.message for a in self.zone.pending]}
+        return {
+            "messages": [a.message for a in self.zone.pending],
+            "presence_entity": self.zone.presence_entity,
+            "occupied": self.zone.occupied,
+        }

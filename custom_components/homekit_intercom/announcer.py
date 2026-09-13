@@ -9,10 +9,26 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.notify import DOMAIN as NOTIFY_DOMAIN
-from homeassistant.const import CONF_NAME
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.const import (
+    CONF_NAME,
+    STATE_HOME,
+    STATE_ON,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.event import async_track_point_in_utc_time
+from homeassistant.helpers.event import (
+    async_track_point_in_utc_time,
+    async_track_state_change_event,
+)
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -21,6 +37,7 @@ from .const import (
     CONF_MAX_WAIT,
     CONF_NOTIFY_SERVICE,
     CONF_PREFIX,
+    CONF_PRESENCE_ENTITY,
     CONF_QUIET_END,
     CONF_QUIET_HOURS,
     CONF_QUIET_MODE,
@@ -28,6 +45,9 @@ from .const import (
     CONF_RECIPIENT,
     DEFAULT_OPTIONS,
     EVENT_ANNOUNCED,
+    EVENT_DISCARDED,
+    HOLD_PRESENCE,
+    HOLD_QUIET_HOURS,
     PRIORITY_NORMAL,
     PRIORITY_URGENT,
     QUIET_MODE_DROP,
@@ -49,12 +69,36 @@ class Announcement:
     priority: str = PRIORITY_NORMAL
     key: str | None = None
     ignore_quiet_hours: bool = False
+    stale_after: timedelta | None = None
     queued_at: datetime = field(default_factory=dt_util.utcnow)
 
     @property
     def urgent(self) -> bool:
         """Return True if this announcement bypasses batching and quiet hours."""
         return self.priority == PRIORITY_URGENT
+
+    @property
+    def expires_at(self) -> datetime | None:
+        """Return when a held announcement is discarded, if ever."""
+        if not self.stale_after:
+            return None
+        return self.queued_at + self.stale_after
+
+
+def state_is_occupied(state: State | None) -> bool:
+    """Return True if a presence entity's state means someone is there.
+
+    Missing, unknown and unavailable states count as occupied so a broken
+    sensor never silently swallows announcements.
+    """
+    if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+        return True
+    if state.state in (STATE_ON, STATE_HOME):
+        return True
+    try:
+        return float(state.state) > 0  # zone entities report a person count
+    except ValueError:
+        return False
 
 
 class IntercomManager:
@@ -67,7 +111,11 @@ class IntercomManager:
         self.options: dict[str, Any] = {**DEFAULT_OPTIONS, **entry.options}
         self.zones: dict[str, ZoneAnnouncer] = {
             subentry_id: ZoneAnnouncer(
-                self, subentry_id, subentry.data[CONF_NAME], subentry.data[CONF_PREFIX]
+                self,
+                subentry_id,
+                subentry.data[CONF_NAME],
+                subentry.data[CONF_PREFIX],
+                subentry.data.get(CONF_PRESENCE_ENTITY),
             )
             for subentry_id, subentry in entry.subentries.items()
             if subentry.subentry_type == SUBENTRY_ZONE
@@ -133,6 +181,12 @@ class IntercomManager:
             candidate += timedelta(days=1)
         return dt_util.as_utc(candidate)
 
+    @callback
+    def async_start(self) -> None:
+        """Start listening to presence entities."""
+        for zone in self.zones.values():
+            self.entry.async_on_unload(zone.async_start())
+
     async def async_shutdown(self) -> None:
         """Send anything that is ready and cancel timers."""
         for zone in self.zones.values():
@@ -143,13 +197,21 @@ class IntercomManager:
 class ZoneAnnouncer:
     """Collects announcements for one zone and sends them as a single email."""
 
-    def __init__(self, manager: IntercomManager, zone_id: str, name: str, prefix: str) -> None:
+    def __init__(
+        self,
+        manager: IntercomManager,
+        zone_id: str,
+        name: str,
+        prefix: str,
+        presence_entity: str | None = None,
+    ) -> None:
         """Initialise the zone."""
         self.manager = manager
         self.hass = manager.hass
         self.zone_id = zone_id
         self.name = name
         self.prefix = prefix
+        self.presence_entity = presence_entity
         self.pending: list[Announcement] = []
         self.last_subject: str | None = None
         self.last_text: str | None = None
@@ -172,12 +234,42 @@ class ZoneAnnouncer:
         for update_callback in list(self._listeners):
             update_callback()
 
-    def _is_held(self, announcement: Announcement, now: datetime) -> bool:
-        return (
-            not announcement.urgent
-            and not announcement.ignore_quiet_hours
-            and self.manager.in_quiet_hours(now)
+    @callback
+    def async_start(self) -> CALLBACK_TYPE:
+        """Listen for the zone becoming occupied."""
+        if not self.presence_entity:
+            return lambda: None
+        return async_track_state_change_event(
+            self.hass, [self.presence_entity], self._async_presence_changed
         )
+
+    async def _async_presence_changed(self, event: Event[EventStateChangedData]) -> None:
+        was_occupied = state_is_occupied(event.data["old_state"])
+        if not state_is_occupied(event.data["new_state"]) or was_occupied:
+            self._notify_listeners()
+            return
+        if self.pending:
+            _LOGGER.debug("%s: occupied, releasing %d message(s)", self.name, len(self.pending))
+            # Start a fresh batch window so the person has a moment to arrive.
+            self._schedule(dt_util.utcnow())
+        self._notify_listeners()
+
+    @property
+    def occupied(self) -> bool:
+        """Return True if the zone has no presence entity or someone is present."""
+        if not self.presence_entity:
+            return True
+        return state_is_occupied(self.hass.states.get(self.presence_entity))
+
+    def _hold_reason(self, announcement: Announcement, now: datetime) -> str | None:
+        """Return why an announcement can't be sent yet, or None."""
+        if announcement.urgent:
+            return None
+        if not announcement.ignore_quiet_hours and self.manager.in_quiet_hours(now):
+            return HOLD_QUIET_HOURS
+        if not self.occupied:
+            return HOLD_PRESENCE
+        return None
 
     async def async_announce(
         self, announcement: Announcement, cooldown: timedelta | None = None
@@ -199,7 +291,10 @@ class ZoneAnnouncer:
                 )
                 return False
 
-        if self._is_held(announcement, now) and self.manager.quiet_mode == QUIET_MODE_DROP:
+        if (
+            self._hold_reason(announcement, now) == HOLD_QUIET_HOURS
+            and self.manager.quiet_mode == QUIET_MODE_DROP
+        ):
             _LOGGER.debug("%s: dropping %r during quiet hours", self.name, announcement.message)
             return False
 
@@ -244,22 +339,41 @@ class ZoneAnnouncer:
         await self.async_flush()
 
     async def async_flush(self) -> None:
-        """Send everything that is not held back by quiet hours."""
+        """Send everything that is not held back, discarding stale messages."""
         self.cancel_timer()
         self._batch_started = None
         now = dt_util.utcnow()
 
-        ready = [a for a in self.pending if not self._is_held(a, now)]
-        held = [a for a in self.pending if self._is_held(a, now)]
-        if held and self.manager.quiet_mode == QUIET_MODE_DROP:
-            held = []
-        self.pending = held
-        if held:
-            self._schedule_at(self.manager.quiet_hours_end(now))
+        ready: list[Announcement] = []
+        held: list[tuple[Announcement, str]] = []
+        for announcement in self.pending:
+            reason = self._hold_reason(announcement, now)
+            if reason is None:
+                ready.append(announcement)
+            elif reason == HOLD_QUIET_HOURS and self.manager.quiet_mode == QUIET_MODE_DROP:
+                self._discard(announcement, reason)
+            elif (expires := announcement.expires_at) is not None and expires <= now:
+                self._discard(announcement, f"stale ({reason})")
+            else:
+                held.append((announcement, reason))
+        self.pending = [announcement for announcement, _ in held]
+
+        wake_times = [a.expires_at for a, _ in held if a.expires_at is not None]
+        if any(reason == HOLD_QUIET_HOURS for _, reason in held):
+            wake_times.append(self.manager.quiet_hours_end(now))
+        if wake_times:
+            self._schedule_at(min(wake_times))
 
         if ready:
             await self._async_send([a.message for a in ready])
         self._notify_listeners()
+
+    def _discard(self, announcement: Announcement, reason: str) -> None:
+        _LOGGER.debug("%s: discarding %r (%s)", self.name, announcement.message, reason)
+        self.hass.bus.async_fire(
+            EVENT_DISCARDED,
+            {"zone": self.name, "message": announcement.message, "reason": reason},
+        )
 
     async def _async_send(self, messages: list[str]) -> None:
         manager = self.manager

@@ -17,6 +17,7 @@ Home Assistant can't reach HomeKit Intercom directly, so this integration sends 
   `HA Announce All: The washing machine has finished, the front door is open and dinner is ready.`
 - 🚨 **Urgent priority.** Skips the wait and sends immediately.
 - 🌙 **Quiet hours.** Holds messages until morning, or discards them.
+- 🚶 **Presence.** Holds a zone's messages until someone is in the room, and discards them if nobody turns up in time.
 - ⏱️ **Cooldown and de-duplication.** Stops a flapping sensor repeating itself.
 - ✂️ **Length limit.** Very long combined announcements are split across several emails.
 - 🧩 **Works everywhere.** Use the `homekit_intercom.announce` action, the standard `notify.send_message` action, or the bundled blueprint.
@@ -49,16 +50,16 @@ Copy `custom_components/homekit_intercom` into your `config/custom_components/` 
 
 - **Notify action:** the action that sends email, e.g. `notify.you_gmail_com` for Google Mail. Choose it from the list.
 - **Recipient email:** the mailbox your Shortcut automation watches.
-- **First zone:** a name and subject prefix, e.g. `All HomePods` / `HA Announce All`.
+- **First zone:** a name and subject prefix, e.g. `All HomePods` / `HA Announce All`, and optionally a presence sensor.
 
-To add more zones, go to **Settings → Devices & services → HomeKit Intercom → Add zone**, e.g. `Kitchen HomePods` / `HA Announce Kitchen`. Each zone becomes a device with:
+To add more zones, go to **Settings → Devices & services → HomeKit Intercom → Add zone**, e.g. `Kitchen HomePods` / `HA Announce Kitchen`. To change a zone later, use its **⋮ → Edit zone** menu. Each zone becomes a device with:
 
 | Entity | Purpose |
 | --- | --- |
 | `notify.<zone>` | The target for announcements |
 | `sensor.<zone>_last_announcement` | Last text sent, with `subject`, `messages` and `last_error` attributes |
 | `sensor.<zone>_last_sent` | When the last email was sent |
-| `sensor.<zone>_pending_messages` | Messages waiting in the batch |
+| `sensor.<zone>_pending_messages` | Messages waiting to be sent, with `messages` and `occupied` attributes |
 | `button.<zone>_send_test_announcement` | Sends a test straight away |
 
 ### 2. Set up the Siri Shortcut
@@ -88,16 +89,19 @@ data:
   key: washing_machine      # optional: de-duplication and cooldown
   cooldown:
     minutes: 15             # optional: requires key
-  ignore_quiet_hours: false # optional
+  quiet_hours: respect      # or ignore
+  stale_after:
+    hours: 2                # optional: discard if still waiting after this
 ```
 
 | Field | Description |
 | --- | --- |
 | `message` | Required. Templates are rendered when the action runs, not when the email is sent. |
-| `priority` | `normal` (batched) or `urgent`. Urgent sends immediately, taking anything already queued with it, and ignores quiet hours. |
+| `priority` | `normal` (batched) or `urgent`. Urgent sends immediately, taking anything already queued with it, and ignores quiet hours and presence. |
 | `key` | Names the notification. A newer queued message with the same key replaces the older one. |
 | `cooldown` | Ignore the message if the same `key` was accepted within this time. |
-| `ignore_quiet_hours` | Send during quiet hours, but still batched. |
+| `quiet_hours` | `respect` (default) waits for quiet hours to end. `ignore` sends during quiet hours, but still batched. The older `ignore_quiet_hours: true` still works. |
+| `stale_after` | Discard the message if it's still waiting for presence or quiet hours after this long. If left out, it waits indefinitely. |
 
 `homekit_intercom.flush` sends a zone's queued messages immediately.
 
@@ -118,6 +122,21 @@ The integration installs **HomeKit Intercom - announce on state change** in `blu
 Go to **Settings → Automations & scenes → Blueprints** and create an automation from it for each notification you want. Each triggering entity has its own cooldown.
 
 > The integration keeps this file up to date. To customise it, copy it to a different folder first.
+
+## Presence
+
+Each zone can have an optional **presence sensor**. While it shows nobody is there, normal messages for that zone are held. When someone arrives, a fresh batch window starts and everything held is announced together.
+
+| Entity type | Counts as occupied when |
+| --- | --- |
+| `binary_sensor` (occupancy/motion/presence), `input_boolean`, `group` | `on` (or `home` for a group of people) |
+| `person`, `device_tracker` | `home` |
+| `zone` | More than 0 people |
+
+- **Unavailable or unknown sensors count as occupied**, so a broken sensor never silently swallows announcements.
+- **Urgent** messages ignore presence.
+- **Stale after:** set it per notification to discard messages that go unheard, e.g. "The washing machine has finished" is not worth announcing 6 hours later. A `homekit_intercom_discarded` event fires for each discarded message.
+- **Separate zones:** presence only affects the zone it's set on. An *All HomePods* zone without a sensor still announces straight away.
 
 ## How batching works
 
@@ -148,10 +167,12 @@ message: "The washing machine has finished."
 messages: ["The washing machine has finished."]
 ```
 
+Each discarded message (stale, or dropped for quiet hours) fires `homekit_intercom_discarded` with `zone`, `message` and `reason`.
+
 ## Things to know
 
 - **Delay:** iOS runs email automations when Mail receives the message. With push email this is usually a few seconds. With fetch schedules or Low Power Mode it can take minutes. Keep the device charged and on Wi-Fi.
-- **Restarts:** queued messages are sent when the integration is reloaded. Anything held for quiet hours is lost on a restart or reload.
+- **Restarts:** queued messages are sent when the integration is reloaded. Anything held for quiet hours or presence is lost on a restart or reload. Reloads happen when you edit settings or zones.
 - **Email quota:** batching keeps the email count down, but avoid templates that announce on every sensor update.
 
 ## Development

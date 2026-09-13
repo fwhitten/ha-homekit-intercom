@@ -29,7 +29,7 @@ def notify_calls(hass: HomeAssistant) -> list[ServiceCall]:
     return async_mock_service(hass, "notify", "gmail")
 
 
-def make_entry(**options) -> MockConfigEntry:
+def make_entry(kitchen_presence: str | None = None, **options) -> MockConfigEntry:
     """Build a config entry with All and Kitchen zones."""
     return MockConfigEntry(
         domain=DOMAIN,
@@ -50,7 +50,11 @@ def make_entry(**options) -> MockConfigEntry:
                 "subentry_id": "all",
             },
             {
-                "data": {"name": "Kitchen HomePods", CONF_PREFIX: "HA Announce Kitchen"},
+                "data": {
+                    "name": "Kitchen HomePods",
+                    CONF_PREFIX: "HA Announce Kitchen",
+                    **({"presence_entity": kitchen_presence} if kitchen_presence else {}),
+                },
                 "subentry_type": SUBENTRY_ZONE,
                 "title": "Kitchen HomePods",
                 "unique_id": None,
@@ -60,9 +64,11 @@ def make_entry(**options) -> MockConfigEntry:
     )
 
 
-async def setup_entry(hass: HomeAssistant, **options) -> MockConfigEntry:
+async def setup_entry(
+    hass: HomeAssistant, kitchen_presence: str | None = None, **options
+) -> MockConfigEntry:
     """Add and set up an entry."""
-    entry = make_entry(**options)
+    entry = make_entry(kitchen_presence, **options)
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()

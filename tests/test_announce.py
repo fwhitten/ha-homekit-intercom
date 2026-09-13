@@ -155,7 +155,7 @@ async def test_quiet_hours_hold(
     await setup_entry(hass, quiet_hours=True, quiet_start="22:00:00", quiet_end="07:00:00")
 
     await _announce(hass, ALL, "Bins go out tomorrow")
-    await _announce(hass, KITCHEN, "Late but important", ignore_quiet_hours=True)
+    await _announce(hass, KITCHEN, "Late but important", quiet_hours="ignore")
     await _advance(hass, freezer, 6)
     assert [c.data["title"] for c in notify_calls] == ["HA Announce Kitchen: Late but important."]
 
@@ -279,3 +279,110 @@ async def test_blueprint_automation(
     hass.states.async_set("binary_sensor.washer", "off", {"friendly_name": "Washing machine"})
     await _advance(hass, freezer, 6)
     assert len(notify_calls) == 1
+
+
+async def test_legacy_ignore_quiet_hours(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, notify_calls
+) -> None:
+    await hass.config.async_set_time_zone("UTC")
+    freezer.move_to("2026-09-13 23:00:00+00:00")
+    await setup_entry(hass, quiet_hours=True, quiet_start="22:00:00", quiet_end="07:00:00")
+    await _announce(hass, ALL, "Old style", ignore_quiet_hours=True)
+    await _announce(hass, ALL, "Explicit wins", ignore_quiet_hours=True, quiet_hours="respect")
+    await _advance(hass, freezer, 6)
+    assert [c.data["title"] for c in notify_calls] == ["HA Announce All: Old style."]
+
+
+PRESENCE = "binary_sensor.kitchen_occupancy"
+
+
+async def test_presence_holds_until_occupied(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, notify_calls
+) -> None:
+    hass.states.async_set(PRESENCE, "off")
+    await setup_entry(hass, kitchen_presence=PRESENCE)
+
+    await _announce(hass, KITCHEN, "Please add salt to the dishwasher")
+    await _announce(hass, ALL, "Not affected")
+    await _advance(hass, freezer, 6)
+    assert [c.data["title"] for c in notify_calls] == ["HA Announce All: Not affected."]
+    pending = hass.states.get("sensor.kitchen_homepods_pending_messages")
+    assert pending.state == "1"
+    assert pending.attributes["occupied"] is False
+
+    await _advance(hass, freezer, 3600)
+    await _announce(hass, KITCHEN, "The bread is ready")
+    await _advance(hass, freezer, 6)
+    assert len(notify_calls) == 1
+
+    hass.states.async_set(PRESENCE, "on")
+    await hass.async_block_till_done()
+    assert len(notify_calls) == 1  # waits one batch window after arrival
+    await _advance(hass, freezer, 6)
+    assert notify_calls[-1].data["title"] == (
+        "HA Announce Kitchen: Please add salt to the dishwasher and the bread is ready."
+    )
+
+
+async def test_presence_already_occupied_sends_normally(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, notify_calls
+) -> None:
+    hass.states.async_set(PRESENCE, "on")
+    await setup_entry(hass, kitchen_presence=PRESENCE)
+    await _announce(hass, KITCHEN, "Hello", stale_after={"seconds": 1})
+    await _advance(hass, freezer, 6)
+    assert notify_calls[0].data["title"] == "HA Announce Kitchen: Hello."
+
+
+async def test_stale_after_discards(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, notify_calls
+) -> None:
+    hass.states.async_set(PRESENCE, "off")
+    await setup_entry(hass, kitchen_presence=PRESENCE)
+    discarded = []
+    hass.bus.async_listen("homekit_intercom_discarded", discarded.append)
+
+    await _announce(hass, KITCHEN, "Washing is done", stale_after={"minutes": 30})
+    await _announce(hass, KITCHEN, "Bins go out tomorrow")
+    await _advance(hass, freezer, 29 * 60)
+    assert not discarded
+    await _advance(hass, freezer, 61)
+    assert [e.data["message"] for e in discarded] == ["Washing is done"]
+    assert discarded[0].data["reason"] == "stale (presence)"
+    assert hass.states.get("sensor.kitchen_homepods_pending_messages").state == "1"
+
+    hass.states.async_set(PRESENCE, "on")
+    await _advance(hass, freezer, 6)
+    assert [c.data["title"] for c in notify_calls] == ["HA Announce Kitchen: Bins go out tomorrow."]
+
+
+async def test_presence_urgent_and_unavailable(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, notify_calls
+) -> None:
+    hass.states.async_set(PRESENCE, "off")
+    await setup_entry(hass, kitchen_presence=PRESENCE)
+    await _announce(hass, KITCHEN, "Smoke detected", priority="urgent")
+    assert len(notify_calls) == 1
+
+    hass.states.async_set(PRESENCE, "unavailable")
+    await _announce(hass, KITCHEN, "Sensor is offline")
+    await _advance(hass, freezer, 6)
+    assert notify_calls[-1].data["title"] == "HA Announce Kitchen: Sensor is offline."
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "state", "occupied"),
+    [
+        ("person.fred", "home", True),
+        ("person.fred", "Work", False),
+        ("zone.home", "2", True),
+        ("zone.home", "0", False),
+        ("input_boolean.guest", "off", False),
+    ],
+)
+async def test_presence_states(
+    hass: HomeAssistant, notify_calls, entity_id: str, state: str, occupied: bool
+) -> None:
+    hass.states.async_set(entity_id, state)
+    entry = await setup_entry(hass, kitchen_presence=entity_id)
+    assert entry.runtime_data.zones["kitchen"].occupied is occupied

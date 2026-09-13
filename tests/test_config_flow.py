@@ -53,11 +53,18 @@ async def test_add_and_edit_zone(hass: HomeAssistant, notify_calls) -> None:
     )
     assert result["errors"] == {"name": "name_exists"}
     result = await hass.config_entries.subentries.async_configure(
-        result["flow_id"], {"name": "Bedroom", "prefix": "HA Announce Bedroom"}
+        result["flow_id"],
+        {
+            "name": "Bedroom",
+            "prefix": "HA Announce Bedroom",
+            "presence_entity": "binary_sensor.bedroom_occupancy",
+        },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     await hass.async_block_till_done()
     assert hass.states.get("notify.bedroom") is not None
+    bedroom = next(z for z in entry.runtime_data.zones.values() if z.name == "Bedroom")
+    assert bedroom.presence_entity == "binary_sensor.bedroom_occupancy"
 
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_ZONE),
