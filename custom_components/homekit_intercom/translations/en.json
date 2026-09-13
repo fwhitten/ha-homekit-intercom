@@ -21,7 +21,7 @@
           "prefix": "Subject prefix"
         },
         "data_description": {
-          "prefix": "Without the colon, e.g. `HA Announce All` sends `HA Announce All: <message>`."
+          "prefix": "Without the colon, e.g. `HA Announce All` sends `HA Announce All: The washing machine has finished.`."
         }
       }
     },
